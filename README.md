@@ -1,50 +1,50 @@
 # lit-query-codegen
 
-Kapselt das Codegen-Tooling aus Maximus Trading in einem wiederverwendbaren npm-Paket:
+Generate feature-based API clients and TanStack Lit Query options from an OpenAPI specification:
 
 ```text
-OpenAPI 3 JSON → Orval Fetch-Client → Transformation → Lit Query / Mutation Options
+OpenAPI 3 JSON → Orval Fetch Client → Transformation → Lit Query / Mutation Options
 ```
 
-Generator, CLI, Fetch-Modul, Konfigurationen und Tests sind in TypeScript geschrieben.
-Der Build erzeugt ESM-JavaScript und Typdeklarationen in `dist/`.
+The generator, CLI, fetch runtime, configuration examples and tests are written in
+TypeScript. The build produces ESM JavaScript and type declarations in `dist/`.
 
-Pro OpenAPI-Tag entstehen `api.ts`, `models.ts`, `queries.ts`, `mutations.ts` und
-`index.ts`. Query- und Mutation-Dateien werden nur erzeugt, wenn entsprechende
-Operationen vorhanden sind. Das Root-`index.ts` exportiert die Features als Namespaces.
-Modelle werden je Feature erzeugt, auch wenn mehrere Features sie verwenden.
+Each OpenAPI tag gets its own directory containing `api.ts`, `models.ts`,
+`queries.ts`, `mutations.ts` and `index.ts`. Query and mutation files are only
+generated when the feature has matching operations. The root `index.ts` exports
+features as namespaces. Shared models are generated within each feature to keep
+the feature directories independent.
 
-Die Transformation entfernt Orvals URL- und Header-Hilfsfunktionen, kodiert
-Pfadparameter mit `encodeURIComponent`, übergibt Query-Parameter an den Fetch-Mutator
-und übergibt JSON-Bodies als Objekte an dessen Serializer. Query-Optionen
-enthalten stabile Schlüssel und geben das AbortSignal an den Request weiter.
-Mutationen erhalten bei mehreren Eingaben ein typisiertes Tupel.
+The transformation removes Orval's URL and header helpers, encodes path parameters
+with `encodeURIComponent`, passes query parameters to the fetch mutator and leaves
+JSON body serialization to the runtime. Query options include stable keys and
+forward the query's `AbortSignal`. Mutations with multiple inputs use typed tuples.
 
 ## Installation
 
-Node.js ab **22.18.0**. Orval, TypeScript und Prettier kommen mit dem Paket.
-Die Anwendung benötigt `@tanstack/lit-query` und dessen Laufzeitabhängigkeiten.
+Requires **Node.js 22.18.0 or later**. Orval, TypeScript and Prettier are included
+as package dependencies. Your application also needs `@tanstack/lit-query` and its
+runtime dependencies.
 
-Solange das Paket noch nicht in einer Registry veröffentlicht ist:
+To install a local package before it is published to a registry:
 
 ```bash
-# Im Paketverzeichnis
+# In the package directory
 npm install
 npm pack
 
-# Im Zielprojekt, Pfad zum erzeugten Tarball anpassen
-npm install --save-dev /path/to/lit-query-codegen-0.1.0.tgz
+# In your application; adjust the path to the generated tarball
+npm install /path/to/lit-query-codegen-0.1.0.tgz
 npm install @tanstack/lit-query
 ```
 
-Für die lokale Entwicklung kann stattdessen
-`npm install --save-dev /path/to/lit-query-codegen` verwendet werden.
-Wenn die Anwendung das mitgelieferte Fetch-Modul nutzt, das Paket als normale
-Dependency statt als Dev-Dependency installieren.
+For local development, you can install directly from the package directory with
+`npm install /path/to/lit-query-codegen`. If you use your own fetch mutator instead
+of `lit-query-codegen/runtime`, the generator can be installed with `--save-dev`.
 
-## Konfiguration und CLI
+## Configuration and CLI
 
-`lit-query-codegen.config.ts` im Zielprojekt:
+Create `lit-query-codegen.config.ts` in your application:
 
 ```ts
 import { defineConfig } from "lit-query-codegen";
@@ -55,11 +55,13 @@ export default defineConfig({
 });
 ```
 
-Alle Dateipfade werden relativ zur Konfigurationsdatei aufgelöst.
-Die Formatierung folgt der Prettier-Konfiguration des Zielprojekts und kann mit
-`prettier: { printWidth: 100 }` überschrieben werden.
+All file paths are resolved relative to the configuration file. Formatting follows
+your project's Prettier configuration. Override individual options with, for
+example, `prettier: { printWidth: 100 }`.
 
-```tson
+Add generation and drift-check commands to your `package.json`:
+
+```json
 {
   "scripts": {
     "api:generate": "lit-query-codegen",
@@ -74,17 +76,19 @@ npm run api:check
 npx lit-query-codegen --config other.config.ts
 ```
 
-`--check` erzeugt temporär einen Client und meldet fehlende, geänderte oder veraltete
-Dateien mit Exit-Code 1. Der bestehende Client wird dabei nicht verändert.
-Auch die normale Generierung erfolgt zuerst temporär; erst nach erfolgreicher
-Transformation wird das Ausgabeverzeichnis ersetzt. Es muss ein dediziertes
-Verzeichnis sein. Dateien ohne Generator-Header und Symlinks verhindern das Ersetzen.
-Entfallene Features und Query-/Mutation-Dateien werden beim nächsten Lauf entfernt.
+`--check` generates a temporary client and reports missing, changed or obsolete
+files with exit code 1. It leaves the existing client untouched.
 
-## Fetch-Modul
+Normal generation also uses a temporary directory. The output directory is
+replaced only after generation and transformation succeed. Use a dedicated
+generated directory: files without a generator header and symbolic links prevent
+replacement. Features and query or mutation files that are no longer needed are
+removed during the next generation run.
 
-Standardmäßig verwenden die generierten Clients `lit-query-codegen/runtime`.
-Das Modul enthält keine Orval-, Node.js- oder Vite-Abhängigkeiten.
+## Fetch runtime
+
+Generated clients use `lit-query-codegen/runtime` by default. This module has no
+Orval, Node.js or Vite dependencies.
 
 ```ts
 import { configureApiFetch } from "lit-query-codegen/runtime";
@@ -92,53 +96,61 @@ import { configureApiFetch } from "lit-query-codegen/runtime";
 configureApiFetch({ baseUrl: "https://api.example.com" });
 ```
 
-Ohne Konfiguration werden relative API-Pfade verwendet; Cookies werden mit
-`credentials: "include"` gesendet. `headers`, `credentials` und ein eigener
-`fetch` können als Defaults konfiguriert werden. `createApiFetch(config)` erstellt
-einen unabhängigen Fetch-Mutator für getrennte API-Clients oder serverseitige Nutzung.
+Without configuration, requests use relative API paths and send cookies with
+`credentials: "include"`. You can configure default `headers`, `credentials` and
+a custom `fetch` implementation. `createApiFetch(config)` creates an independent
+fetch mutator for separate API clients or server-side use.
 
-Der Mutator serialisiert einfache Objekte, Arrays und `null` als JSON; `FormData`
-und andere native Bodies werden durchgereicht. Query-Arrays werden als wiederholte
-Parameter gesendet, `undefined` wird ausgelassen und `null` wird als `"null"`
-übertragen. Erfolgreiche Antworten geben den Body zurück, leere Antworten
-`undefined`. HTTP-Fehler werfen `ApiError` mit `status` und optionalen RFC-9457-
-Problem-Details.
+The mutator serializes plain objects, arrays and `null` as JSON. `FormData` and
+other native request bodies are passed through. Query arrays use repeated
+parameters; `undefined` values are omitted and `null` is sent as the string
+`"null"`. Successful responses return the body, or `undefined` for an empty
+response. HTTP failures throw `ApiError` with a `status` and optional RFC 9457
+problem details.
 
-Ein vorhandener Mutator kann weiterverwendet werden:
+To use an existing fetch mutator, configure its path:
 
 ```ts
-request: {
-  path: "./src/api/request.ts",
-  exports: ["ApiError"],
-  typeExports: ["ApiProblem", "ApiRequestOptions"],
-}
+import { defineConfig } from "lit-query-codegen";
+
+export default defineConfig({
+  input: "./openapi.json",
+  output: "./src/api/generated",
+  request: {
+    path: "./src/api/request.ts",
+    exports: ["ApiError"],
+    typeExports: ["ApiProblem", "ApiRequestOptions"],
+  },
+});
 ```
 
-Er muss `apiFetch<T>(url, options): Promise<T>` und `ApiRequestOptions` exportieren.
-`options` enthält den noch nicht serialisierten `body`, ein `query`-Objekt und Fetch-Optionen.
-Standardmäßig exportieren die Feature-Barrels außerdem `ApiError`, `ApiProblem`
-und `ApiRequestOptions`; für andere Mutatoren können `exports` und `typeExports`
-angepasst oder auf `[]` gesetzt werden.
+The module must export `apiFetch<T>(url, options): Promise<T>` and
+`ApiRequestOptions`. The options contain an unserialized `body`, a `query` object
+and fetch options. Feature entry points also export `ApiError`, `ApiProblem` and
+`ApiRequestOptions` by default. Adjust `exports` and `typeExports`, or set them to
+`[]`, if your mutator exposes different symbols.
 
-## Projektspezifische Regeln
+## Project-specific rules
 
-- `excludeTags`: Tags auslassen, beispielsweise `system`.
-- `mutationOperations`: GET-Operationen als Mutationen behandeln, beispielsweise
-  OAuth-Start und Callback. Operation-IDs und generierte Funktionsnamen sind erlaubt.
-- `features`: zusätzliche Imports, Request-Optionen, Query-Key-Bestandteile und
-  `enabled` je Feature. Ausdrücke sind TypeScript-Code aus der Projektkonfiguration.
-- `queryAliases`: zusammengehörige Queries unter einem Objekt mit `allKey` gruppieren.
+- `excludeTags`: omit tags such as `system`.
+- `mutationOperations`: treat GET operations as mutations, for example an OAuth
+  start or callback. Accepts OpenAPI operation IDs or generated function names.
+- `features`: add imports, request options, query-key values and an `enabled`
+  expression for each feature. Expressions are TypeScript code from your config.
+- `queryAliases`: group related queries under an object with an `allKey` property.
 
-[examples/maximus-trading.config.ts](examples/maximus-trading.config.ts) enthält
-die bisherigen Maximus-Regeln inklusive Admin-Headern, Cache-Scope, OAuth-Ausnahmen
-und `adminUsers`. Nach Installation des Pakets kann diese Datei als
-`frontend/lit-query-codegen.config.ts` verwendet werden. Dann genügt
-`"api:generate": "lit-query-codegen"`; `prepare-api.mjs`, `render-api.mjs`,
-`render-queries.mjs` und `orval.config.mjs` werden für diesen Ablauf nicht mehr benötigt.
-Der Client-Drift-Check kann `npm --prefix frontend run api:check` aufrufen.
-Der Backend-Export und der Spec-Drift-Check bleiben Aufgaben des jeweiligen Projekts.
+[examples/advanced.config.ts](examples/advanced.config.ts) shows these options for
+a product catalog with session-dependent requests and login operations. Adapt the
+tags, operation IDs and helper imports to your API. The example expects a
+`products` tag with `list_products` and `get_product` operations, plus
+`start_login` and `complete_login` operations. Its `auth.ts` module supplies
+`authHeaders`, `authScope` and `hasSession`.
 
-## JavaScript-API
+Once configured, `"api:generate": "lit-query-codegen"` replaces separate Orval
+configuration and transformation scripts. Exporting the OpenAPI specification
+and checking it against the backend remain tasks for your project.
+
+## Programmatic API
 
 ```ts
 import { generate } from "lit-query-codegen";
@@ -149,17 +161,18 @@ await generate(
 );
 ```
 
-## Voraussetzungen des OpenAPI-Vertrags
+## OpenAPI requirements
 
-Wie im ursprünglichen Tooling braucht jede enthaltene Operation genau einen Tag
-im Format `lower-case-with-hyphens` und eine eindeutige explizite `operationId`
-in `snake_case` oder `camelCase`. Lokale Parameter-Referenzen werden unterstützt.
-Path-Item-Referenzen müssen vorab gebündelt werden. Die Transformation zielt auf
-den bisherigen JSON-/Multipart-Fetch-Vertrag; benutzerdefinierte Header- oder
-Cookie-Parameter und abweichende OpenAPI-Serialisierungsstile brauchen eine
-entsprechende Erweiterung des Mutators und der Transformation.
+Each included operation must have exactly one tag in the format
+`lower-case-with-hyphens` and a unique, explicit `operationId` in `snake_case` or
+`camelCase`. Local parameter references are supported. Bundle path-item references
+before generation.
 
-## Entwicklung
+The transformation targets JSON and multipart fetch requests. Custom header or
+cookie parameters and other OpenAPI serialization styles require corresponding
+extensions to the mutator and transformation.
+
+## Development
 
 ```bash
 npm install
@@ -170,15 +183,14 @@ npm run test:package
 npm pack
 ```
 
-`test:package` installiert den Tarball in einem unabhängigen temporären Projekt und
-prüft CLI, TypeScript-Konfiguration, Client-Generierung, Drift-Check und Typen.
-Der Vergleich mit dem bisherigen Maximus-Client lässt sich separat ausführen:
+`test:package` installs the tarball in an independent temporary project and checks
+the CLI, TypeScript configuration, client generation, drift detection and types.
+To compare a project's existing generated client against its configuration:
 
 ```bash
-node test/maximus-parity.ts /path/to/maximus-trading/frontend
+node test/client-parity.ts /path/to/app/lit-query-codegen.config.ts
 ```
 
-Orval ist auf die Version des ursprünglichen Toolings festgelegt, weil die
-Transformation dessen generierten TypeScript-AST auswertet. Ein Upgrade sollte
-mit den Integrationstests geprüft werden. Das Paket wird mit `UNLICENSED`
-ausgeliefert; eine öffentliche Lizenz kann vor einer Veröffentlichung gewählt werden.
+Orval is pinned because the transformation processes its generated TypeScript
+AST. Run the integration tests when upgrading it. The package uses `UNLICENSED`;
+choose a public license before publishing if needed.
