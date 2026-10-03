@@ -1,30 +1,207 @@
 # lit-query-codegen
 
-Generate feature-based API clients and TanStack Lit Query options from an OpenAPI specification:
+**Turn an OpenAPI specification into typed API calls and ready-to-use TanStack Lit Query options.**
 
-```text
-OpenAPI 3 JSON → Orval Fetch Client → Transformation → Lit Query / Mutation Options
+[![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![OpenAPI 3](https://img.shields.io/badge/OpenAPI-3-6BA539?logo=openapiinitiative&logoColor=white)](#openapi-requirements)
+[![Lit Query](https://img.shields.io/badge/TanStack-Lit_Query-00ADD8)](https://tanstack.com/query/latest/docs/framework/lit/overview)
+[![Node.js](https://img.shields.io/badge/Node.js-%3E%3D22.18.0-5FA04E?logo=nodedotjs&logoColor=white)](#installation)
+
+Building a [Lit](https://lit.dev/) frontend for a REST API? This tool reads the backend's
+OpenAPI JSON and generates TypeScript models, fetch functions, query keys and
+query/mutation option factories, grouped by API feature. You import them into your
+components instead of writing and maintaining that API glue for every endpoint.
+
+```ts
+import { products } from "./api/generated";
+
+// A typed API call: Promise<Product[]>
+const catalog = await products.listProducts({ limit: 20 });
+
+// Options to pass to a Lit Query controller or QueryClient:
+const query = products.listProductsQuery({ limit: 20 });
+const mutation = products.createProductMutation();
 ```
 
-The generator, CLI, fetch runtime, configuration examples and tests are written in
-TypeScript. The build produces ESM JavaScript and type declarations in `dist/`.
+**[See the generated code](examples/catalog/generated/products/)** ·
+**[See a Lit component using it](examples/catalog/catalog-element.ts)** ·
+**[Try the example](#try-the-checked-in-example)**
 
-Each OpenAPI tag gets its own directory containing `api.ts`, `models.ts`,
-`queries.ts`, `mutations.ts` and `index.ts`. Query and mutation files are only
-generated when the feature has matching operations. The root `index.ts` exports
-features as namespaces. Shared models are generated within each feature to keep
-the feature directories independent.
+## Why use it?
 
-The transformation removes Orval's URL and header helpers, encodes path parameters
-with `encodeURIComponent`, passes query parameters to the fetch mutator and leaves
-JSON body serialization to the runtime. Query options include stable keys and
-forward the query's `AbortSignal`. Mutations with multiple inputs use typed tuples.
+For each endpoint, a frontend usually needs a request function, parameter and response
+types, a cache key and a query or mutation definition. When the API changes, those
+pieces need to stay in sync. `lit-query-codegen` derives them from the same contract.
+
+| What you would maintain by hand                           | What the generator produces                                                          |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Request and response interfaces                           | TypeScript models from the OpenAPI schemas                                           |
+| URLs, path encoding, query parameters and request bodies  | Typed fetch functions using a shared request runtime                                 |
+| Query keys and functions for each read operation          | `...Query()` factories with operation inputs in the key and `AbortSignal` forwarding |
+| Mutation functions and input types for writes             | `...Mutation()` factories, including typed tuples for multiple inputs                |
+| Checking whether committed clients match the API contract | A `--check` command for local development and CI                                     |
+
+Use it when your application uses **Lit + TanStack Query**, your backend exports
+**OpenAPI 3 JSON**, and you want to keep generated clients in your repository.
+For example, a product dashboard can regenerate its client after a backend change;
+TypeScript then flags frontend calls that no longer match the generated types.
+
+```text
+Backend OpenAPI JSON
+        |
+        v  lit-query-codegen (Orval + TypeScript transformation)
+TypeScript models + fetch functions + query/mutation options
+        |
+        v  Your Lit components + TanStack Query
+UI, loading/error states, caching and refetching
+```
+
+[TanStack Lit Query](https://tanstack.com/query/latest/docs/framework/lit/overview)
+provides caching and reactive controllers. This package generates the options you
+pass to those controllers. You still write your UI and decide when to invalidate
+cached data after a mutation. It does not generate a backend, components or runtime
+response validation. If you only need fetch functions, you can import `api.ts`
+directly; the query options specifically target the Lit adapter.
+
+## What does the generated code look like?
+
+The checked-in [product catalog specification](examples/catalog/openapi.json) contains:
+
+| OpenAPI operation                              | Generated request                       | Generated options                  |
+| ---------------------------------------------- | --------------------------------------- | ---------------------------------- |
+| `GET /products?limit=20` · `list_products`     | `listProducts({ limit: 20 })`           | `listProductsQuery({ limit: 20 })` |
+| `GET /products/{productId}` · `get_product`    | `getProduct("p-1")`                     | `getProductQuery("p-1")`           |
+| `POST /products` · `create_product`            | `createProduct({ name, price })`        | `createProductMutation()`          |
+| `PUT /products/{productId}` · `update_product` | `updateProduct("p-1", { name, price })` | `updateProductMutation()`          |
+
+All four operations have the OpenAPI tag `products`. Tags become feature directories;
+`snake_case` operation IDs become `camelCase` function names. GET operations become
+queries by default; other HTTP methods become mutations.
+
+```text
+generated/
+  index.ts                   # exports the products namespace
+  products/
+    models.ts                # Product, ProductInput, ListProductsParams
+    api.ts                   # typed fetch functions
+    queries.ts               # query keys + query functions
+    mutations.ts             # mutation keys + mutation functions
+    index.ts                 # feature exports + runtime error types
+```
+
+These are actual excerpts from the committed output; headers and unrelated
+declarations are omitted here. The linked files contain the complete generated code.
+
+**[models.ts](examples/catalog/generated/products/models.ts)** — types derived from the schema:
+
+```ts
+export interface Product {
+  id: string;
+  name: string;
+  /** @minimum 0 */
+  price: number;
+}
+```
+
+**[api.ts](examples/catalog/generated/products/api.ts)** — a normal typed function you can call directly:
+
+```ts
+export const listProducts = (
+  params?: ListProductsParams,
+  options?: ApiRequestOptions,
+): Promise<Product[]> =>
+  apiFetch<Product[]>("/products", { ...options, method: "GET", query: params });
+```
+
+**[queries.ts](examples/catalog/generated/products/queries.ts)** — the request wired to TanStack Query:
+
+```ts
+export const listProductsQuery = (params?: Parameters<typeof listProducts>[0]) =>
+  queryOptions({
+    queryKey: ["products", "listProducts", params ?? null] as const,
+    queryFn: ({ signal }) => listProducts(params, { signal }),
+  });
+```
+
+**[mutations.ts](examples/catalog/generated/products/mutations.ts)** — typed inputs for writes:
+
+```ts
+export const createProductMutation = () =>
+  mutationOptions({
+    mutationKey: ["products", "createProduct"] as const,
+    mutationFn: (variables: Parameters<typeof createProduct>[0]) => createProduct(variables),
+  });
+```
+
+Operations with multiple inputs use one typed tuple of variables. For example,
+`updateProductMutation()` expects `[productId, { name, price }]` when you call
+the mutation controller's `mutate` method.
+
+## Use it in a Lit component
+
+Create a shared `QueryClient` and pass the generated options to a controller:
+
+```ts
+import { LitElement, html } from "lit";
+import { QueryClient, createQueryController } from "@tanstack/lit-query";
+import { products } from "./api/generated";
+
+const queryClient = new QueryClient();
+
+class ProductList extends LitElement {
+  private readonly catalog = createQueryController(
+    this,
+    () => ({ ...products.listProductsQuery({ limit: 20 }), staleTime: 60_000 }),
+    queryClient,
+  );
+
+  override render() {
+    const query = this.catalog();
+    if (query.isPending) return html`<p>Loading products…</p>`;
+    if (query.isError) return html`<p>${query.error.message}</p>`;
+
+    return html`<ul>
+      ${query.data.map((product) => html`<li>${product.name}</li>`)}
+    </ul>`;
+  }
+}
+
+customElements.define("product-list", ProductList);
+```
+
+Add `<product-list></product-list>` to your page after importing the component.
+The data is inferred as `Product[]`; you can add options such as `staleTime`
+without changing the generated files. A `QueryClientProvider` can supply the client
+through Lit context instead of passing it explicitly.
+
+The complete [catalog component](examples/catalog/catalog-element.ts) also creates
+products with `createMutationController` and invalidates the `products` queries
+after a successful write.
+
+## Try the checked-in example
+
+No backend is needed to generate or inspect the client. From this repository:
+
+```bash
+npm ci
+npm run example:generate
+npm run example:check
+npm run typecheck
+```
+
+[`examples/catalog/`](examples/catalog/README.md) contains the OpenAPI input, config,
+generated output and a handwritten Lit component. `example:generate` rebuilds the
+generator and updates that output. `example:check` verifies it without modifying
+files; CI runs the same check. The component requires a matching API and a Lit app
+to make real requests; this example does not include an API server or dev server.
 
 ## Installation
 
 Requires **Node.js 22.18.0 or later**. Orval, TypeScript and Prettier are included
 as package dependencies. Your application also needs `@tanstack/lit-query` and its
-runtime dependencies.
+runtime dependencies. The example is checked against `@tanstack/lit-query@0.2.25`.
+Generated imports target a TypeScript frontend build with bundler module resolution,
+such as a Lit app built with Vite.
 
 To install a local package before it is published to a registry:
 
@@ -35,7 +212,7 @@ npm pack
 
 # In your application; adjust the path to the generated tarball
 npm install /path/to/lit-query-codegen-0.1.0.tgz
-npm install @tanstack/lit-query
+npm install @tanstack/lit-query@0.2.25 @tanstack/query-core@5.104.0 lit
 ```
 
 For local development, you can install directly from the package directory with
@@ -172,17 +349,22 @@ The transformation targets JSON and multipart fetch requests. Custom header or
 cookie parameters and other OpenAPI serialization styles require corresponding
 extensions to the mutator and transformation.
 
+Generated TypeScript types describe the API contract; the runtime does not validate
+response bodies against the schema.
+
 ## Development
 
 ```bash
 npm install
 npm test
 npm run typecheck
+npm run example:check
 npm run format:check
 npm run test:package
 npm pack
 ```
 
+`typecheck` includes the checked-in generated client and Lit component.
 `test:package` installs the tarball in an independent temporary project and checks
 the CLI, TypeScript configuration, client generation, drift detection and types.
 To compare a project's existing generated client against its configuration:

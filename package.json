@@ -1,7 +1,7 @@
 {
   "name": "lit-query-codegen",
   "version": "0.1.0",
-  "description": "Generate feature-based OpenAPI clients and TanStack Lit Query options with Orval.",
+  "description": "Generate typed TypeScript API clients, query keys and TanStack Lit Query options from OpenAPI.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/mathisarends/lit-query-codegen.git"
@@ -38,6 +38,8 @@
     "test": "npm run build && node --test test/*.test.ts",
     "test:package": "node test/package-smoke.ts",
     "typecheck": "npm run build && tsc -p tsconfig.test.json",
+    "example:generate": "npm run build && node dist/cli.js --config examples/catalog/lit-query-codegen.config.ts",
+    "example:check": "npm run build && node dist/cli.js --config examples/catalog/lit-query-codegen.config.ts --check",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "prepack": "npm run build"
@@ -55,9 +57,15 @@
   },
   "keywords": [
     "openapi",
+    "openapi-client",
     "orval",
     "lit",
+    "lit-query",
+    "web-components",
+    "typescript",
     "tanstack-query",
-    "codegen"
+    "codegen",
+    "api-client",
+    "fetch"
   ]
 }
